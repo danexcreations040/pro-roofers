@@ -16,8 +16,8 @@
       - Copy the preset name
    4. Paste both values below, then redeploy
    ──────────────────────────────────────────── */
-const CLOUDINARY_CLOUD = 'YOUR_CLOUD_NAME';   // e.g. 'dxyz123abc'
-const CLOUDINARY_PRESET = 'YOUR_PRESET_NAME'; // e.g. 'pro_roofers_unsigned'
+const CLOUDINARY_CLOUD = 'dpgnsmmls';
+const CLOUDINARY_PRESET = 'ml_default';
 
 const SESSION_KEY = 'pr_admin_session';
 const TOKEN_KEY   = 'pr_admin_token';
