@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Panel — Pro Roofers Kenya</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="admin.css" />
+</head>
+<body>
+
+  <!-- ===== LOGIN SCREEN ===== -->
+  <div id="loginScreen" class="login-screen">
+    <div class="login-box">
+      <div class="login-logo">
+        <svg viewBox="0 0 56 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <polygon points="28,3 54,27 2,27" fill="#e84c1e"/>
+          <rect x="10" y="27" width="36" height="20" rx="2" fill="#1c2e45"/>
+          <rect x="21" y="31" width="14" height="16" rx="1.5" fill="#e84c1e" opacity="0.9"/>
+        </svg>
+        <div>
+          <h1>PRO ROOFERS</h1>
+          <span>Admin Panel</span>
+        </div>
+      </div>
+      <form id="loginForm" novalidate>
+        <div class="field">
+          <label for="adminPass">Admin Password</label>
+          <div class="pass-wrap">
+            <input type="password" id="adminPass" placeholder="Enter your password" autocomplete="current-password" required />
+            <button type="button" id="togglePass" aria-label="Show/hide password">👁</button>
+          </div>
+        </div>
+        <button type="submit" class="btn-login">Login →</button>
+        <p class="login-error" id="loginError" aria-live="polite"></p>
+      </form>
+      <p class="login-hint">This page is for the site admin only.</p>
+    </div>
+  </div>
+
+  <!-- ===== ADMIN DASHBOARD ===== -->
+  <div id="dashboard" class="dashboard" hidden>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <svg viewBox="0 0 56 50" fill="none">
+          <polygon points="28,3 54,27 2,27" fill="#e84c1e"/>
+          <rect x="10" y="27" width="36" height="20" rx="2" fill="#fff" opacity=".15"/>
+          <rect x="21" y="31" width="14" height="16" rx="1.5" fill="#e84c1e"/>
+        </svg>
+        <div>
+          <strong>PRO ROOFERS</strong>
+          <span>Admin</span>
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-tab="projects">📸 Projects</button>
+        <button class="nav-item" data-tab="settings">⚙️ Settings</button>
+        <a href="index.html" class="nav-item" target="_blank" rel="noopener">🌐 View Website</a>
+      </nav>
+      <button class="sidebar-logout" id="logoutBtn">🚪 Logout</button>
+    </aside>
+
+    <!-- Main content -->
+    <main class="main-content">
+
+      <!-- ── Projects Tab ── -->
+      <section id="tab-projects" class="tab active">
+        <div class="page-header">
+          <div>
+            <h2>Project Photos</h2>
+            <p>Upload photos of your completed roofing projects. They appear on the website immediately.</p>
+          </div>
+          <button class="btn-primary" id="openUploadBtn">+ Upload Photos</button>
+        </div>
+
+        <!-- Upload Modal -->
+        <div class="modal-backdrop" id="uploadModal" hidden>
+          <div class="modal" role="dialog" aria-modal="true" aria-labelledby="uploadTitle">
+            <div class="modal-header">
+              <h3 id="uploadTitle">Upload New Project Photo</h3>
+              <button class="modal-close" id="closeUpload" aria-label="Close">✕</button>
+            </div>
+            <div class="modal-body">
+
+              <!-- Drop zone -->
+              <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Click or drag to upload photo">
+                <div class="dz-icon">📷</div>
+                <p><strong>Click to choose a photo</strong> or drag &amp; drop here</p>
+                <p class="dz-hint">JPG, PNG, WEBP — any size</p>
+                <input type="file" id="photoInput" accept="image/*" multiple hidden />
+              </div>
+              <div id="previewArea" class="preview-area" hidden>
+                <img id="previewImg" src="" alt="Preview" />
+                <p id="previewName" class="preview-name"></p>
+              </div>
+
+              <div class="field">
+                <label for="projTitle">Project Title *</label>
+                <input type="text" id="projTitle" placeholder="e.g. Iron Sheet Roof — 4 Bedroom House" required />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="projLocation">Location *</label>
+                  <input type="text" id="projLocation" placeholder="e.g. Nairobi, Karen" required />
+                </div>
+                <div class="field">
+                  <label for="projCategory">Category *</label>
+                  <select id="projCategory">
+                    <option value="Installation">Installation</option>
+                    <option value="Repair">Repair</option>
+                    <option value="Waterproofing">Waterproofing</option>
+                    <option value="Trusses">Trusses</option>
+                    <option value="Gutters">Gutters</option>
+                  </select>
+                </div>
+              </div>
+
+              <p class="upload-error" id="uploadError" aria-live="polite"></p>
+              <p class="upload-progress" id="uploadProgress" aria-live="polite" hidden></p>
+            </div>
+            <div class="modal-footer">
+              <button class="btn-secondary" id="cancelUpload">Cancel</button>
+              <button class="btn-primary" id="savePhoto">Save &amp; Publish →</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stats bar -->
+        <div class="stats-bar">
+          <div class="stat-chip"><strong id="totalCount">0</strong> Total Projects</div>
+          <div class="stat-chip"><strong id="instCount">0</strong> Installation</div>
+          <div class="stat-chip"><strong id="repCount">0</strong> Repair</div>
+          <div class="stat-chip"><strong id="wpCount">0</strong> Waterproofing</div>
+          <div class="stat-chip"><strong id="trCount">0</strong> Trusses</div>
+          <div class="stat-chip"><strong id="gtCount">0</strong> Gutters</div>
+        </div>
+
+        <!-- Gallery management grid -->
+        <div class="admin-grid" id="adminGrid">
+          <div class="empty-state" id="emptyState">
+            <p>🏗️</p>
+            <p>No projects yet. Click <strong>"+ Upload Photos"</strong> to add your first project.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Settings Tab ── -->
+      <section id="tab-settings" class="tab">
+        <div class="page-header">
+          <div>
+            <h2>Settings</h2>
+            <p>Manage your admin password and site data.</p>
+          </div>
+        </div>
+
+        <div class="settings-cards">
+          <div class="settings-card">
+            <h3>🔐 Change Admin Password</h3>
+            <p>Update your admin login password. Keep it safe — only you should know it.</p>
+            <form id="changePassForm" novalidate>
+              <div class="field">
+                <label for="oldPass">Current Password</label>
+                <input type="password" id="oldPass" placeholder="Current password" required />
+              </div>
+              <div class="field">
+                <label for="newPass">New Password</label>
+                <input type="password" id="newPass" placeholder="New password (min 6 chars)" required minlength="6" />
+              </div>
+              <div class="field">
+                <label for="confirmPass">Confirm New Password</label>
+                <input type="password" id="confirmPass" placeholder="Repeat new password" required />
+              </div>
+              <button type="submit" class="btn-primary" style="margin-top:4px">Update Password</button>
+              <p class="pass-msg" id="passMsg" aria-live="polite"></p>
+            </form>
+          </div>
+
+          <div class="settings-card">
+            <h3>🔑 How to Change Your Password</h3>
+            <p>Your password is the <strong>ADMIN_TOKEN</strong> you set in Netlify. To change it:</p>
+            <ol style="margin:12px 0 0 18px;font-size:.9rem;line-height:2;color:#5a6f82">
+              <li>Go to <strong>netlify.com</strong> → your site → <strong>Site configuration</strong></li>
+              <li>Click <strong>Environment variables</strong></li>
+              <li>Find <strong>ADMIN_TOKEN</strong> and click Edit</li>
+              <li>Type your new password → Save</li>
+              <li>Click <strong>Deploys → Trigger deploy</strong></li>
+            </ol>
+          </div>
+
+          <div class="settings-card danger-card">
+            <h3>🗑️ Clear All Projects</h3>
+            <p>This will permanently delete all uploaded project photos from the website. This cannot be undone.</p>
+            <button class="btn-danger" id="clearAllBtn">Delete All Projects</button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="admin.js"></script>
+</body>
+</html>

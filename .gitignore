@@ -1,0 +1,7 @@
+node_modules/
+.env
+*.log
+deploy.js
+pro-roofers-deploy.zip
+DEPLOY_GUIDE.html
+README.md

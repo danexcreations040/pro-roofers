@@ -1,0 +1,9 @@
+{
+  "name": "pro-roofers-kenya",
+  "version": "1.0.0",
+  "description": "Pro Roofers Kenya — Professional Roofing Services Website",
+  "private": true,
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  }
+}
