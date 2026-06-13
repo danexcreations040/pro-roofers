@@ -33,10 +33,9 @@ async function fetchProjects() {
     if (data.ok && data.projects && data.projects.length) {
       return data.projects;
     }
-    return FALLBACK_PROJECTS;
+    return []; // empty until you upload real photos
   } catch {
-    // Offline or not yet deployed — use fallback
-    return FALLBACK_PROJECTS;
+    return [];
   }
 }
 
@@ -58,7 +57,14 @@ async function renderWorks(filter) {
     : allProjects.filter(p => p.category === filter);
 
   if (!filteredProjects.length) {
-    grid.innerHTML = '<p style="color:rgba(255,255,255,.5);text-align:center;grid-column:1/-1;padding:40px">No projects in this category yet.</p>';
+    grid.innerHTML = `
+      <div style="grid-column:1/-1;text-align:center;padding:60px 20px;color:rgba(255,255,255,.5)">
+        <p style="font-size:2.5rem;margin-bottom:12px">📷</p>
+        <p style="font-size:1rem;margin-bottom:16px">No projects uploaded yet.</p>
+        <a href="admin.html" style="color:#e84c1e;font-weight:700;text-decoration:underline">
+          Upload your first project photo →
+        </a>
+      </div>`;
     return;
   }
 

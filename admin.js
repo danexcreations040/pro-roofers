@@ -1,42 +1,40 @@
 /* =========================================
    PRO ROOFERS KENYA — Admin Panel JS
-   Uses Netlify server storage so photos
-   show on the website from ANY device.
    ========================================= */
-
 'use strict';
-
-/* ─── Admin token is set as an environment variable
-       ADMIN_TOKEN in your Netlify dashboard.
-       The password you type here is sent to the server
-       and checked against that secret token.
-       Nobody else can upload or delete photos.       ─── */
 
 const SESSION_KEY = 'pr_admin_session';
 const TOKEN_KEY   = 'pr_admin_token';
 
-/* ── Store token in sessionStorage (clears when browser closes) ── */
-function getToken()       { return sessionStorage.getItem(TOKEN_KEY) || ''; }
-function setToken(t)      { sessionStorage.setItem(TOKEN_KEY, t); sessionStorage.setItem(SESSION_KEY, '1'); }
-function clearToken()     { sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(SESSION_KEY); }
-function isLoggedIn()     { return sessionStorage.getItem(SESSION_KEY) === '1' && !!getToken(); }
+function getToken()   { return sessionStorage.getItem(TOKEN_KEY) || ''; }
+function setToken(t)  { sessionStorage.setItem(TOKEN_KEY, t); sessionStorage.setItem(SESSION_KEY, '1'); }
+function clearToken() { sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(SESSION_KEY); }
+function isLoggedIn() { return sessionStorage.getItem(SESSION_KEY) === '1' && !!getToken(); }
 
 /* ── API helpers ── */
 async function apiPost(path, body) {
-  const res = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...body, adminToken: getToken() }),
-  });
-  return res.json();
+  try {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, adminToken: getToken() }),
+    });
+    return await res.json();
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
 }
 async function apiGet(path) {
-  const res = await fetch(path);
-  return res.json();
+  try {
+    const res = await fetch(path);
+    return await res.json();
+  } catch (e) {
+    return { ok: false, projects: [], error: e.message };
+  }
 }
 
-/* ── Compress image before uploading (keeps storage small) ── */
-function compressImage(file, maxW = 1200, quality = 0.82) {
+/* ── Compress image ── */
+function compressImage(file, maxW = 1400, quality = 0.85) {
   return new Promise(resolve => {
     const reader = new FileReader();
     reader.onload = e => {
@@ -55,27 +53,28 @@ function compressImage(file, maxW = 1200, quality = 0.82) {
   });
 }
 
-/* ─────────── DOM refs ─────────── */
-const loginScreen  = document.getElementById('loginScreen');
-const dashboard    = document.getElementById('dashboard');
-const loginForm    = document.getElementById('loginForm');
-const loginError   = document.getElementById('loginError');
-const adminPassEl  = document.getElementById('adminPass');
-const togglePassBtn= document.getElementById('togglePass');
-const logoutBtn    = document.getElementById('logoutBtn');
+/* ── DOM refs ── */
+const loginScreen   = document.getElementById('loginScreen');
+const dashboard     = document.getElementById('dashboard');
+const loginForm     = document.getElementById('loginForm');
+const loginError    = document.getElementById('loginError');
+const adminPassEl   = document.getElementById('adminPass');
+const togglePassBtn = document.getElementById('togglePass');
+const logoutBtn     = document.getElementById('logoutBtn');
 
 const openUploadBtn  = document.getElementById('openUploadBtn');
 const uploadModal    = document.getElementById('uploadModal');
 const closeUploadBtn = document.getElementById('closeUpload');
 const cancelUpload   = document.getElementById('cancelUpload');
 const savePhotoBtn   = document.getElementById('savePhoto');
+const uploadTitle    = document.getElementById('uploadTitle');
 
-const dropzone    = document.getElementById('dropzone');
-const photoInput  = document.getElementById('photoInput');
-const previewArea = document.getElementById('previewArea');
-const previewImg  = document.getElementById('previewImg');
-const previewName = document.getElementById('previewName');
-const uploadError = document.getElementById('uploadError');
+const dropzone       = document.getElementById('dropzone');
+const photoInput     = document.getElementById('photoInput');
+const previewArea    = document.getElementById('previewArea');
+const previewImg     = document.getElementById('previewImg');
+const previewName    = document.getElementById('previewName');
+const uploadError    = document.getElementById('uploadError');
 const uploadProgress = document.getElementById('uploadProgress');
 
 const projTitle    = document.getElementById('projTitle');
@@ -92,12 +91,12 @@ const wpCount    = document.getElementById('wpCount');
 const trCount    = document.getElementById('trCount');
 const gtCount    = document.getElementById('gtCount');
 
-const navItems       = document.querySelectorAll('.nav-item[data-tab]');
+const clearAllBtn    = document.getElementById('clearAllBtn');
 const changePassForm = document.getElementById('changePassForm');
 const passMsg        = document.getElementById('passMsg');
-const clearAllBtn    = document.getElementById('clearAllBtn');
 
 let currentImageData = null;
+let replaceId        = null; // if set, we're replacing an existing project's photo
 
 /* ══════════════════════════════════════
    AUTH
@@ -112,39 +111,38 @@ function showLogin() {
   dashboard.hidden   = true;
 }
 
-if (isLoggedIn()) showDashboard();
+// On page load — if session exists skip login
+if (isLoggedIn()) {
+  showDashboard();
+} else {
+  showLogin();
+}
 
 loginForm.addEventListener('submit', async e => {
   e.preventDefault();
   loginError.textContent = '';
   const pass = adminPassEl.value.trim();
-  if (!pass) return;
+  if (!pass) { loginError.textContent = 'Please enter your password.'; return; }
 
-  // Test the password against the server — if the API accepts it, we're in
   const btn = loginForm.querySelector('button[type=submit]');
   btn.textContent = 'Checking...';
   btn.disabled = true;
 
-  // Temporarily set token to test it
   setToken(pass);
-  try {
-    const res = await apiPost('/api/save-project', { _test: true });
-    // Server returns 401 if wrong, anything else means token works
-    if (res.error === 'Unauthorized') {
-      clearToken();
-      loginError.textContent = '❌ Wrong password. Please try again.';
-      adminPassEl.value = '';
-      adminPassEl.focus();
-    } else {
-      // Missing fields error means auth passed — token is correct
-      showDashboard();
-    }
-  } catch {
-    // Network issue — still let in if offline (graceful degradation)
-    showDashboard();
-  }
+  const res = await apiPost('/api/save-project', { _test: true });
+
   btn.textContent = 'Login →';
   btn.disabled = false;
+
+  if (res.error === 'Unauthorized') {
+    clearToken();
+    loginError.textContent = '❌ Wrong password. Please try again.';
+    adminPassEl.value = '';
+    adminPassEl.focus();
+  } else {
+    // Auth passed (any response other than Unauthorized means token is correct)
+    showDashboard();
+  }
 });
 
 togglePassBtn.addEventListener('click', () => {
@@ -162,7 +160,7 @@ logoutBtn.addEventListener('click', () => {
 /* ══════════════════════════════════════
    TABS
 ══════════════════════════════════════ */
-navItems.forEach(btn => {
+document.querySelectorAll('.nav-item[data-tab]').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.nav-item[data-tab]').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -175,7 +173,9 @@ navItems.forEach(btn => {
 /* ══════════════════════════════════════
    UPLOAD MODAL
 ══════════════════════════════════════ */
-function openModal() {
+function openModal(forReplaceId = null) {
+  replaceId = forReplaceId;
+  uploadTitle.textContent = forReplaceId ? 'Replace Project Photo' : 'Upload New Project Photo';
   uploadModal.removeAttribute('hidden');
   currentImageData = null;
   previewArea.hidden = true;
@@ -186,14 +186,21 @@ function openModal() {
   uploadError.textContent = '';
   uploadProgress.hidden = true;
   dropzone.hidden = false;
-  projTitle.focus();
+
+  // If replacing, hide title/location/category — just need new photo
+  const metaFields = document.getElementById('metaFields');
+  if (metaFields) metaFields.style.display = forReplaceId ? 'none' : 'block';
+
+  setTimeout(() => { if (!forReplaceId) projTitle.focus(); }, 100);
 }
+
 function closeModal() {
   uploadModal.setAttribute('hidden', '');
   currentImageData = null;
+  replaceId = null;
 }
 
-openUploadBtn.addEventListener('click', openModal);
+openUploadBtn.addEventListener('click', () => openModal());
 closeUploadBtn.addEventListener('click', closeModal);
 cancelUpload.addEventListener('click', closeModal);
 uploadModal.addEventListener('click', e => { if (e.target === uploadModal) closeModal(); });
@@ -223,17 +230,18 @@ async function handleFile(file) {
     return;
   }
   uploadError.textContent = '';
-  previewName.textContent = 'Compressing...';
   previewArea.hidden = false;
   dropzone.hidden = true;
   previewImg.src = '';
+  previewName.textContent = 'Compressing image...';
 
   currentImageData = await compressImage(file);
   previewImg.src = currentImageData;
-  previewName.textContent = file.name + ' (compressed & ready)';
+  const kb = Math.round(currentImageData.length * 0.75 / 1024);
+  previewName.textContent = `${file.name} — ${kb > 1024 ? (kb/1024).toFixed(1)+'MB' : kb+'KB'} (ready)`;
 }
 
-/* ── Save photo to Netlify server ── */
+/* ── Save / Replace photo ── */
 savePhotoBtn.addEventListener('click', async () => {
   uploadError.textContent = '';
 
@@ -241,53 +249,68 @@ savePhotoBtn.addEventListener('click', async () => {
     uploadError.textContent = '⚠️ Please select a photo first.';
     return;
   }
-  if (!projTitle.value.trim()) {
-    uploadError.textContent = '⚠️ Please enter a project title.';
-    projTitle.focus();
-    return;
-  }
-  if (!projLocation.value.trim()) {
-    uploadError.textContent = '⚠️ Please enter the project location.';
-    projLocation.focus();
-    return;
+
+  // If replacing, we just need the image
+  if (!replaceId) {
+    if (!projTitle.value.trim()) {
+      uploadError.textContent = '⚠️ Please enter a project title.';
+      projTitle.focus(); return;
+    }
+    if (!projLocation.value.trim()) {
+      uploadError.textContent = '⚠️ Please enter the location.';
+      projLocation.focus(); return;
+    }
   }
 
   savePhotoBtn.textContent = 'Uploading...';
   savePhotoBtn.disabled = true;
   uploadProgress.hidden = false;
-  uploadProgress.textContent = '⏳ Saving to server...';
+  uploadProgress.textContent = '⏳ Saving to server — please wait...';
 
-  const res = await apiPost('/api/save-project', {
-    title:    projTitle.value.trim(),
-    location: projLocation.value.trim(),
-    category: projCategory.value,
-    img:      currentImageData,
-  });
+  let res;
+  if (replaceId) {
+    // Delete old then save new with same id
+    await apiPost('/api/delete-project', { id: replaceId });
+    res = await apiPost('/api/save-project', {
+      id:       replaceId,   // keep same id so order stays consistent
+      title:    document.querySelector(`.admin-card[data-id="${replaceId}"] h4`)?.textContent || 'Project',
+      location: document.querySelector(`.admin-card[data-id="${replaceId}"] .admin-card-meta`)?.textContent?.replace(/[📍\s]/g,'').replace(/^[A-Za-z]+/,'').trim() || '',
+      category: document.querySelector(`.admin-card[data-id="${replaceId}"] .cat-badge`)?.textContent || 'Installation',
+      img:      currentImageData,
+    });
+  } else {
+    res = await apiPost('/api/save-project', {
+      title:    projTitle.value.trim(),
+      location: projLocation.value.trim(),
+      category: projCategory.value,
+      img:      currentImageData,
+    });
+  }
 
   savePhotoBtn.textContent = 'Save & Publish →';
   savePhotoBtn.disabled = false;
   uploadProgress.hidden = true;
 
   if (!res.ok) {
-    uploadError.textContent = '❌ Upload failed: ' + (res.error || 'Unknown error');
+    uploadError.textContent = '❌ Upload failed: ' + (res.error || 'Unknown error. Check your ADMIN_TOKEN in Netlify.');
     return;
   }
 
   closeModal();
   loadAndRenderGrid();
-  showToast('✅ Project published! It now shows on your website.');
+  showToast(replaceId ? '🔄 Photo replaced on the website!' : '✅ Project published on the website!');
 });
 
 /* ══════════════════════════════════════
    LOAD & RENDER ADMIN GRID
 ══════════════════════════════════════ */
 async function loadAndRenderGrid() {
-  adminGrid.innerHTML = '<p class="loading-msg">Loading projects...</p>';
+  adminGrid.innerHTML = '<p class="loading-msg">⏳ Loading projects...</p>';
 
-  const res = await apiGet('/api/get-projects');
+  const res      = await apiGet('/api/get-projects');
   const projects = res.projects || [];
 
-  // Update stats
+  // Stats
   totalCount.textContent = projects.length;
   instCount.textContent  = projects.filter(p => p.category === 'Installation').length;
   repCount.textContent   = projects.filter(p => p.category === 'Repair').length;
@@ -297,14 +320,16 @@ async function loadAndRenderGrid() {
 
   if (!projects.length) {
     adminGrid.innerHTML = '';
-    adminGrid.appendChild(emptyState);
     emptyState.hidden = false;
+    adminGrid.appendChild(emptyState);
     return;
   }
 
   adminGrid.innerHTML = projects.map(p => `
     <div class="admin-card" data-id="${p.id}">
-      <img class="admin-card-img" src="${p.img}" alt="${p.title}" loading="lazy" />
+      <img class="admin-card-img" src="${p.img}"
+           alt="${p.title}" loading="lazy"
+           title="Click to view full size" />
       <div class="admin-card-body">
         <h4 title="${p.title}">${p.title}</h4>
         <div class="admin-card-meta">
@@ -313,36 +338,68 @@ async function loadAndRenderGrid() {
         </div>
         <p class="admin-card-date">${p.date || ''}</p>
         <div class="admin-card-actions">
-          <button class="ac-btn ac-btn-del" data-id="${p.id}" aria-label="Delete ${p.title}">🗑 Delete</button>
+          <button class="ac-btn ac-btn-replace" data-id="${p.id}" aria-label="Replace photo for ${p.title}">
+            🔄 Replace
+          </button>
+          <button class="ac-btn ac-btn-del" data-id="${p.id}" aria-label="Delete ${p.title}">
+            🗑 Delete
+          </button>
         </div>
       </div>
     </div>
   `).join('');
 
+  // Replace buttons
+  adminGrid.querySelectorAll('.ac-btn-replace').forEach(btn => {
+    btn.addEventListener('click', () => openModal(+btn.dataset.id));
+  });
+
+  // Delete buttons
   adminGrid.querySelectorAll('.ac-btn-del').forEach(btn => {
     btn.addEventListener('click', () => deleteProject(+btn.dataset.id, btn));
+  });
+
+  // Click image to view full size
+  adminGrid.querySelectorAll('.admin-card-img').forEach(img => {
+    img.addEventListener('click', () => { window.open(img.src, '_blank'); });
   });
 }
 
 async function deleteProject(id, btn) {
-  if (!confirm('Delete this project? It will be removed from the website.')) return;
-  btn.textContent = 'Deleting...';
+  if (!confirm('Delete this project? It will be removed from the website immediately.')) return;
+  btn.textContent = '...';
   btn.disabled = true;
   const res = await apiPost('/api/delete-project', { id });
   if (res.ok) {
     loadAndRenderGrid();
-    showToast('🗑 Project deleted.');
+    showToast('🗑 Project deleted from website.');
   } else {
     btn.textContent = '🗑 Delete';
     btn.disabled = false;
-    alert('Delete failed: ' + (res.error || 'Unknown error'));
+    showToast('❌ Delete failed: ' + (res.error || 'Unknown error'));
   }
 }
 
 /* ══════════════════════════════════════
-   SETTINGS — Change password
-   (Updates the ADMIN_TOKEN in Netlify env —
-    you change it in Netlify dashboard)
+   SETTINGS — Clear all
+══════════════════════════════════════ */
+clearAllBtn.addEventListener('click', async () => {
+  if (!confirm('⚠️ Delete ALL project photos permanently?\n\nThis removes everything from the website. Cannot be undone.')) return;
+  clearAllBtn.textContent = 'Deleting...';
+  clearAllBtn.disabled = true;
+  const res = await apiPost('/api/clear-projects', {});
+  clearAllBtn.textContent = '🗑️ Delete All Projects';
+  clearAllBtn.disabled = false;
+  if (res.ok) {
+    loadAndRenderGrid();
+    showToast('All projects deleted from website.');
+  } else {
+    showToast('❌ Failed: ' + (res.error || 'Unknown error'));
+  }
+});
+
+/* ══════════════════════════════════════
+   SETTINGS — Change password form
 ══════════════════════════════════════ */
 changePassForm.addEventListener('submit', async e => {
   e.preventDefault();
@@ -353,75 +410,46 @@ changePassForm.addEventListener('submit', async e => {
   const newPass  = document.getElementById('newPass').value;
   const confirm  = document.getElementById('confirmPass').value;
 
-  // Verify old password works against server
   const savedToken = getToken();
   setToken(oldPass);
   const testRes = await apiPost('/api/save-project', { _test: true });
+  setToken(savedToken);
 
   if (testRes.error === 'Unauthorized') {
-    setToken(savedToken);
     passMsg.textContent = '❌ Current password is wrong.';
-    passMsg.className = 'pass-msg error';
-    return;
+    passMsg.className = 'pass-msg error'; return;
   }
-
-  setToken(savedToken); // restore
-
   if (newPass.length < 6) {
     passMsg.textContent = '❌ New password must be at least 6 characters.';
-    passMsg.className = 'pass-msg error';
-    return;
+    passMsg.className = 'pass-msg error'; return;
   }
   if (newPass !== confirm) {
     passMsg.textContent = '❌ Passwords do not match.';
-    passMsg.className = 'pass-msg error';
-    return;
+    passMsg.className = 'pass-msg error'; return;
   }
 
-  passMsg.textContent = '✅ To change password: go to Netlify Dashboard → Site Settings → Environment Variables → update ADMIN_TOKEN to your new password → Redeploy.';
+  passMsg.innerHTML = `✅ To apply your new password:<br>
+    1. Go to <a href="https://app.netlify.com" target="_blank"><strong>app.netlify.com</strong></a><br>
+    2. Site configuration → Environment variables<br>
+    3. Edit <strong>ADMIN_TOKEN</strong> → set to: <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px">${newPass}</code><br>
+    4. Deploys → Trigger deploy → Deploy site`;
   passMsg.className = 'pass-msg success';
   changePassForm.reset();
 });
 
 /* ══════════════════════════════════════
-   SETTINGS — Clear all
-══════════════════════════════════════ */
-clearAllBtn.addEventListener('click', async () => {
-  if (!confirm('Delete ALL project photos permanently from the website? This cannot be undone.')) return;
-  clearAllBtn.textContent = 'Deleting all...';
-  clearAllBtn.disabled = true;
-  const res = await apiPost('/api/clear-projects', {});
-  clearAllBtn.textContent = '🗑️ Delete All Projects';
-  clearAllBtn.disabled = false;
-  if (res.ok) {
-    loadAndRenderGrid();
-    showToast('All projects deleted.');
-  } else {
-    alert('Failed: ' + (res.error || 'Unknown error'));
-  }
-});
-
-/* ══════════════════════════════════════
-   TOAST NOTIFICATION
+   TOAST
 ══════════════════════════════════════ */
 function showToast(msg) {
   let t = document.getElementById('adminToast');
   if (!t) {
     t = document.createElement('div');
     t.id = 'adminToast';
-    t.style.cssText = `
-      position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);
-      background:#0f1a2b;color:#fff;padding:13px 24px;border-radius:50px;
-      font-size:.9rem;font-weight:600;box-shadow:0 4px 24px rgba(0,0,0,.4);
-      opacity:0;transition:all .3s ease;z-index:9999;white-space:nowrap;
-    `;
     document.body.appendChild(t);
   }
   t.textContent = msg;
-  requestAnimationFrame(() => {
-    t.style.opacity = '1';
-    t.style.transform = 'translateX(-50%) translateY(0)';
-  });
+  t.style.opacity = '1';
+  t.style.transform = 'translateX(-50%) translateY(0)';
   clearTimeout(t._timer);
   t._timer = setTimeout(() => {
     t.style.opacity = '0';
