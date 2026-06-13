@@ -1,14 +1,16 @@
-// POST /api/delete-project — fast delete
+// POST /api/delete-project
+// Deletes project metadata from Netlify Blobs
+// Cloudinary image deletion handled client-side via Cloudinary API
 import { getStore } from '@netlify/blobs';
 
-export default async (req, context) => {
+export default async (req) => {
   const headers = {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
   };
 
   if (req.method === 'OPTIONS') return new Response('', { status: 204, headers });
-  if (req.method !== 'POST') return new Response(JSON.stringify({ ok: false, error: 'Method not allowed' }), { status: 405, headers });
+  if (req.method !== 'POST')    return new Response(JSON.stringify({ ok: false, error: 'Method not allowed' }), { status: 405, headers });
 
   try {
     const { id, adminToken } = await req.json();

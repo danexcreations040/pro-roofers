@@ -1,46 +1,41 @@
-// POST /api/save-project — optimised for speed
+// POST /api/save-project
+// Saves project METADATA only (title, location, category, cloudinary URL)
+// The image itself is already on Cloudinary — NOT stored here
 import { getStore } from '@netlify/blobs';
 
-export default async (req, context) => {
+export default async (req) => {
   const headers = {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
   };
 
   if (req.method === 'OPTIONS') return new Response('', { status: 204, headers });
-  if (req.method !== 'POST') return new Response(JSON.stringify({ ok: false, error: 'Method not allowed' }), { status: 405, headers });
+  if (req.method !== 'POST')    return new Response(JSON.stringify({ ok: false, error: 'Method not allowed' }), { status: 405, headers });
 
   try {
     const body = await req.json();
-    const { title, location, category, img, adminToken, _test } = body;
+    const { title, location, category, img, cloudinaryId, adminToken, _test } = body;
 
-    // Auth check first — fast fail
     const validToken = process.env.ADMIN_TOKEN;
     if (!validToken || adminToken !== validToken) {
       return new Response(JSON.stringify({ ok: false, error: 'Unauthorized' }), { status: 401, headers });
     }
 
-    // Test call from login — just confirm auth
-    if (_test) {
-      return new Response(JSON.stringify({ ok: true, auth: true }), { status: 200, headers });
-    }
+    if (_test) return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 
     if (!title || !location || !category || !img) {
       return new Response(JSON.stringify({ ok: false, error: 'Missing fields' }), { status: 400, headers });
     }
 
-    // Validate image size — reject anything over 3MB base64 (~2.2MB image)
-    if (img.length > 3 * 1024 * 1024) {
-      return new Response(JSON.stringify({ ok: false, error: 'Image too large. Please use a smaller photo.' }), { status: 400, headers });
-    }
-
     const id = Date.now();
+    // Store only tiny metadata — no base64, no large payload
     const project = {
       id,
-      title:    title.trim(),
-      location: location.trim(),
+      title:       title.trim(),
+      location:    location.trim(),
       category,
-      img,
+      img,           // Cloudinary URL (short string, not base64)
+      cloudinaryId:  cloudinaryId || null,
       date: new Date().toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric' }),
     };
 

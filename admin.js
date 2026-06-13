@@ -1,7 +1,23 @@
 /* =========================================
    PRO ROOFERS KENYA — Admin Panel JS
+   Architecture:
+   - Photos → Cloudinary (direct from browser, 1-3s)
+   - Metadata → Netlify Blobs (tiny JSON, instant)
+   - No base64, no slow serverless bottleneck
    ========================================= */
 'use strict';
+
+/* ─── CLOUDINARY CONFIG ───────────────────────
+   1. Go to https://cloudinary.com and sign up free
+   2. From your dashboard copy your Cloud Name
+   3. Go to Settings → Upload → Add upload preset
+      - Signing mode: Unsigned
+      - Folder: pro-roofers
+      - Copy the preset name
+   4. Paste both values below, then redeploy
+   ──────────────────────────────────────────── */
+const CLOUDINARY_CLOUD = 'YOUR_CLOUD_NAME';   // e.g. 'dxyz123abc'
+const CLOUDINARY_PRESET = 'YOUR_PRESET_NAME'; // e.g. 'pro_roofers_unsigned'
 
 const SESSION_KEY = 'pr_admin_session';
 const TOKEN_KEY   = 'pr_admin_token';
@@ -11,66 +27,78 @@ function setToken(t)  { sessionStorage.setItem(TOKEN_KEY, t); sessionStorage.set
 function clearToken() { sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(SESSION_KEY); }
 function isLoggedIn() { return sessionStorage.getItem(SESSION_KEY) === '1' && !!getToken(); }
 
-/* ── API helpers ── */
+/* ── API helpers (Netlify — metadata only, tiny payloads) ── */
 async function apiPost(path, body) {
   try {
     const res = await fetch(path, {
-      method: 'POST',
+      method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body, adminToken: getToken() }),
+      body:    JSON.stringify({ ...body, adminToken: getToken() }),
     });
     return await res.json();
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
+  } catch (e) { return { ok: false, error: e.message }; }
 }
 async function apiGet(path) {
   try {
     const res = await fetch(path);
     return await res.json();
-  } catch (e) {
-    return { ok: false, projects: [], error: e.message };
-  }
+  } catch (e) { return { ok: false, projects: [], error: e.message }; }
 }
 
-/* ── Compress image aggressively — max 900px, 0.72 quality
-   Reduces a 3MB photo to ~60-80KB before upload.
-   This makes upload/delete 10-15x faster.           ── */
-function compressImage(file, maxW = 900, quality = 0.72) {
-  return new Promise(resolve => {
-    const reader = new FileReader();
-    reader.onload = e => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let w = img.width, h = img.height;
-        if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
-        canvas.width = w; canvas.height = h;
-        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', quality));
-      };
-      img.src = e.target.result;
-    };
-    reader.readAsDataURL(file);
+/* ── Upload image directly to Cloudinary (bypasses Netlify completely) ──
+   This is why it's fast — image goes browser → Cloudinary CDN directly.
+   Netlify only receives a short URL string, not the image data.          ── */
+async function uploadToCloudinary(file, onProgress) {
+  if (CLOUDINARY_CLOUD === 'YOUR_CLOUD_NAME') {
+    throw new Error('SETUP_NEEDED');
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('upload_preset', CLOUDINARY_PRESET);
+  formData.append('folder', 'pro-roofers');
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+
+    xhr.upload.addEventListener('progress', e => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    });
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status === 200) {
+        const data = JSON.parse(xhr.responseText);
+        // Return optimised URL — auto quality, auto format, max 1200px wide
+        const url = data.secure_url.replace('/upload/', '/upload/q_auto,f_auto,w_1200/');
+        resolve({ url, publicId: data.public_id });
+      } else {
+        reject(new Error('Cloudinary upload failed: ' + xhr.status));
+      }
+    });
+
+    xhr.addEventListener('error', () => reject(new Error('Network error during upload')));
+
+    xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`);
+    xhr.send(formData);
   });
 }
 
 /* ── DOM refs ── */
-const loginScreen   = document.getElementById('loginScreen');
-const dashboard     = document.getElementById('dashboard');
-const loginForm     = document.getElementById('loginForm');
-const loginError    = document.getElementById('loginError');
-const adminPassEl   = document.getElementById('adminPass');
-const togglePassBtn = document.getElementById('togglePass');
-const logoutBtn     = document.getElementById('logoutBtn');
-
+const loginScreen    = document.getElementById('loginScreen');
+const dashboard      = document.getElementById('dashboard');
+const loginForm      = document.getElementById('loginForm');
+const loginError     = document.getElementById('loginError');
+const adminPassEl    = document.getElementById('adminPass');
+const togglePassBtn  = document.getElementById('togglePass');
+const logoutBtn      = document.getElementById('logoutBtn');
 const openUploadBtn  = document.getElementById('openUploadBtn');
 const uploadModal    = document.getElementById('uploadModal');
 const closeUploadBtn = document.getElementById('closeUpload');
 const cancelUpload   = document.getElementById('cancelUpload');
 const savePhotoBtn   = document.getElementById('savePhoto');
 const uploadTitle    = document.getElementById('uploadTitle');
-
 const dropzone       = document.getElementById('dropzone');
 const photoInput     = document.getElementById('photoInput');
 const previewArea    = document.getElementById('previewArea');
@@ -78,34 +106,36 @@ const previewImg     = document.getElementById('previewImg');
 const previewName    = document.getElementById('previewName');
 const uploadError    = document.getElementById('uploadError');
 const uploadProgress = document.getElementById('uploadProgress');
-
-const projTitle    = document.getElementById('projTitle');
-const projLocation = document.getElementById('projLocation');
-const projCategory = document.getElementById('projCategory');
-
-const adminGrid  = document.getElementById('adminGrid');
-const emptyState = document.getElementById('emptyState');
-
-const totalCount = document.getElementById('totalCount');
-const instCount  = document.getElementById('instCount');
-const repCount   = document.getElementById('repCount');
-const wpCount    = document.getElementById('wpCount');
-const trCount    = document.getElementById('trCount');
-const gtCount    = document.getElementById('gtCount');
-
+const projTitle      = document.getElementById('projTitle');
+const projLocation   = document.getElementById('projLocation');
+const projCategory   = document.getElementById('projCategory');
+const adminGrid      = document.getElementById('adminGrid');
+const emptyState     = document.getElementById('emptyState');
+const totalCount     = document.getElementById('totalCount');
+const instCount      = document.getElementById('instCount');
+const repCount       = document.getElementById('repCount');
+const wpCount        = document.getElementById('wpCount');
+const trCount        = document.getElementById('trCount');
+const gtCount        = document.getElementById('gtCount');
 const clearAllBtn    = document.getElementById('clearAllBtn');
 const changePassForm = document.getElementById('changePassForm');
 const passMsg        = document.getElementById('passMsg');
 
-let currentImageData = null;
-let replaceId        = null; // if set, we're replacing an existing project's photo
+let selectedFile = null;
+let replaceId    = null;
 
-/* ══════════════════════════════════════
-   AUTH
-══════════════════════════════════════ */
+/* ══ AUTH ══ */
 function showDashboard() {
   loginScreen.hidden = true;
   dashboard.hidden   = false;
+
+  // Show setup banner if Cloudinary not configured
+  if (CLOUDINARY_CLOUD === 'YOUR_CLOUD_NAME') {
+    showBanner(
+      '⚠️ One-time setup needed: Configure Cloudinary for fast photo uploads. ' +
+      '<a href="#" id="setupHelp" style="color:#e84c1e;font-weight:700">See instructions below ↓</a>'
+    );
+  }
   loadAndRenderGrid();
 }
 function showLogin() {
@@ -113,26 +143,20 @@ function showLogin() {
   dashboard.hidden   = true;
 }
 
-// On page load — if session exists skip login
-if (isLoggedIn()) {
-  showDashboard();
-} else {
-  showLogin();
-}
+isLoggedIn() ? showDashboard() : showLogin();
 
 loginForm.addEventListener('submit', async e => {
   e.preventDefault();
   loginError.textContent = '';
   const pass = adminPassEl.value.trim();
-  if (!pass) { loginError.textContent = 'Please enter your password.'; return; }
+  if (!pass) return;
 
   const btn = loginForm.querySelector('button[type=submit]');
   btn.textContent = 'Checking...';
   btn.disabled = true;
-
   setToken(pass);
-  const res = await apiPost('/api/save-project', { _test: true });
 
+  const res = await apiPost('/api/save-project', { _test: true });
   btn.textContent = 'Login →';
   btn.disabled = false;
 
@@ -142,7 +166,6 @@ loginForm.addEventListener('submit', async e => {
     adminPassEl.value = '';
     adminPassEl.focus();
   } else {
-    // Auth passed (any response other than Unauthorized means token is correct)
     showDashboard();
   }
 });
@@ -153,33 +176,25 @@ togglePassBtn.addEventListener('click', () => {
   togglePassBtn.textContent = show ? '🙈' : '👁';
 });
 
-logoutBtn.addEventListener('click', () => {
-  clearToken();
-  showLogin();
-  adminPassEl.value = '';
-});
+logoutBtn.addEventListener('click', () => { clearToken(); showLogin(); adminPassEl.value = ''; });
 
-/* ══════════════════════════════════════
-   TABS
-══════════════════════════════════════ */
+/* ══ TABS ══ */
 document.querySelectorAll('.nav-item[data-tab]').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.nav-item[data-tab]').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     btn.classList.add('active');
-    const target = document.getElementById('tab-' + btn.dataset.tab);
-    if (target) target.classList.add('active');
+    const t = document.getElementById('tab-' + btn.dataset.tab);
+    if (t) t.classList.add('active');
   });
 });
 
-/* ══════════════════════════════════════
-   UPLOAD MODAL
-══════════════════════════════════════ */
+/* ══ UPLOAD MODAL ══ */
 function openModal(forReplaceId = null) {
-  replaceId = forReplaceId;
+  replaceId    = forReplaceId;
+  selectedFile = null;
   uploadTitle.textContent = forReplaceId ? 'Replace Project Photo' : 'Upload New Project Photo';
   uploadModal.removeAttribute('hidden');
-  currentImageData = null;
   previewArea.hidden = true;
   previewImg.src = '';
   projTitle.value = '';
@@ -188,17 +203,14 @@ function openModal(forReplaceId = null) {
   uploadError.textContent = '';
   uploadProgress.hidden = true;
   dropzone.hidden = false;
+  uploadProgress.textContent = '';
 
-  // If replacing, hide title/location/category — just need new photo
   const metaFields = document.getElementById('metaFields');
   if (metaFields) metaFields.style.display = forReplaceId ? 'none' : 'block';
-
-  setTimeout(() => { if (!forReplaceId) projTitle.focus(); }, 100);
 }
-
 function closeModal() {
   uploadModal.setAttribute('hidden', '');
-  currentImageData = null;
+  selectedFile = null;
   replaceId = null;
 }
 
@@ -218,103 +230,104 @@ dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-ove
 dropzone.addEventListener('drop', e => {
   e.preventDefault();
   dropzone.classList.remove('drag-over');
-  const file = e.dataTransfer.files[0];
-  if (file) handleFile(file);
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
 });
 photoInput.addEventListener('change', () => {
   if (photoInput.files[0]) handleFile(photoInput.files[0]);
   photoInput.value = '';
 });
 
-async function handleFile(file) {
+function handleFile(file) {
   if (!file.type.startsWith('image/')) {
     uploadError.textContent = '⚠️ Please select an image file (JPG, PNG, WEBP).';
     return;
   }
   uploadError.textContent = '';
+  selectedFile = file;
+
+  // Show preview immediately — no heavy processing
+  const url = URL.createObjectURL(file);
+  previewImg.src = url;
+  const sizeKB = Math.round(file.size / 1024);
+  previewName.textContent = `📷 ${file.name} — ${sizeKB > 1024 ? (sizeKB/1024).toFixed(1)+'MB' : sizeKB+'KB'} — ready to upload`;
   previewArea.hidden = false;
   dropzone.hidden = true;
-  previewImg.src = '';
-  previewName.textContent = `⏳ Compressing ${file.name}...`;
-
-  const originalKB = Math.round(file.size / 1024);
-  currentImageData = await compressImage(file);
-  previewImg.src = currentImageData;
-  const compressedKB = Math.round(currentImageData.length * 0.75 / 1024);
-  const saved = Math.round((1 - compressedKB / originalKB) * 100);
-  previewName.textContent = `✅ ${file.name} — ${originalKB}KB → ${compressedKB}KB (${saved}% smaller, fast upload)`;
 }
 
-/* ── Save / Replace photo ── */
+/* ── Save photo ── */
 savePhotoBtn.addEventListener('click', async () => {
   uploadError.textContent = '';
 
-  if (!currentImageData) {
-    uploadError.textContent = '⚠️ Please select a photo first.';
-    return;
-  }
-
-  // If replacing, we just need the image
+  if (!selectedFile) { uploadError.textContent = '⚠️ Please select a photo first.'; return; }
   if (!replaceId) {
-    if (!projTitle.value.trim()) {
-      uploadError.textContent = '⚠️ Please enter a project title.';
-      projTitle.focus(); return;
-    }
-    if (!projLocation.value.trim()) {
-      uploadError.textContent = '⚠️ Please enter the location.';
-      projLocation.focus(); return;
-    }
+    if (!projTitle.value.trim())    { uploadError.textContent = '⚠️ Enter a project title.';    projTitle.focus();    return; }
+    if (!projLocation.value.trim()) { uploadError.textContent = '⚠️ Enter the project location.'; projLocation.focus(); return; }
   }
 
   savePhotoBtn.textContent = 'Uploading...';
   savePhotoBtn.disabled = true;
   uploadProgress.hidden = false;
-  uploadProgress.textContent = '⏳ Saving to server — please wait...';
+  uploadProgress.textContent = '⬆️ Uploading photo to CDN... 0%';
 
-  let res;
-  if (replaceId) {
-    // Delete old then save new with same id
-    await apiPost('/api/delete-project', { id: replaceId });
-    res = await apiPost('/api/save-project', {
-      id:       replaceId,   // keep same id so order stays consistent
-      title:    document.querySelector(`.admin-card[data-id="${replaceId}"] h4`)?.textContent || 'Project',
-      location: document.querySelector(`.admin-card[data-id="${replaceId}"] .admin-card-meta`)?.textContent?.replace(/[📍\s]/g,'').replace(/^[A-Za-z]+/,'').trim() || '',
-      category: document.querySelector(`.admin-card[data-id="${replaceId}"] .cat-badge`)?.textContent || 'Installation',
-      img:      currentImageData,
+  let imgUrl, cloudinaryId;
+
+  try {
+    const result = await uploadToCloudinary(selectedFile, pct => {
+      uploadProgress.textContent = `⬆️ Uploading... ${pct}%`;
     });
-  } else {
-    res = await apiPost('/api/save-project', {
-      title:    projTitle.value.trim(),
-      location: projLocation.value.trim(),
-      category: projCategory.value,
-      img:      currentImageData,
-    });
+    imgUrl = result.url;
+    cloudinaryId = result.publicId;
+    uploadProgress.textContent = '💾 Saving project info...';
+  } catch (err) {
+    savePhotoBtn.textContent = 'Save & Publish →';
+    savePhotoBtn.disabled = false;
+    uploadProgress.hidden = true;
+
+    if (err.message === 'SETUP_NEEDED') {
+      uploadError.innerHTML = '⚠️ Cloudinary not configured yet. <strong>Scroll down in Settings tab</strong> to see setup instructions.';
+    } else {
+      uploadError.textContent = '❌ Upload failed: ' + err.message;
+    }
+    return;
   }
+
+  // Get existing project data if replacing
+  let title = projTitle.value.trim();
+  let location = projLocation.value.trim();
+  let category = projCategory.value;
+
+  if (replaceId) {
+    const card = adminGrid.querySelector(`.admin-card[data-id="${replaceId}"]`);
+    if (card) {
+      title    = card.querySelector('h4')?.textContent || 'Project';
+      location = card.dataset.location || '';
+      category = card.dataset.category || 'Installation';
+    }
+    await apiPost('/api/delete-project', { id: replaceId });
+  }
+
+  const res = await apiPost('/api/save-project', { title, location, category, img: imgUrl, cloudinaryId });
 
   savePhotoBtn.textContent = 'Save & Publish →';
   savePhotoBtn.disabled = false;
   uploadProgress.hidden = true;
 
   if (!res.ok) {
-    uploadError.textContent = '❌ Upload failed: ' + (res.error || 'Unknown error. Check your ADMIN_TOKEN in Netlify.');
+    uploadError.textContent = '❌ Save failed: ' + (res.error || 'Unknown error');
     return;
   }
 
   closeModal();
   loadAndRenderGrid();
-  showToast(replaceId ? '🔄 Photo replaced on the website!' : '✅ Project published on the website!');
+  showToast(replaceId ? '🔄 Photo replaced successfully!' : '✅ Project published on website!');
 });
 
-/* ══════════════════════════════════════
-   LOAD & RENDER ADMIN GRID
-══════════════════════════════════════ */
+/* ══ RENDER GRID ══ */
 async function loadAndRenderGrid() {
-  adminGrid.innerHTML = '<p class="loading-msg">⏳ Loading projects...</p>';
-
+  adminGrid.innerHTML = '<p class="loading-msg">⏳ Loading...</p>';
   const res      = await apiGet('/api/get-projects');
   const projects = res.projects || [];
 
-  // Stats
   totalCount.textContent = projects.length;
   instCount.textContent  = projects.filter(p => p.category === 'Installation').length;
   repCount.textContent   = projects.filter(p => p.category === 'Repair').length;
@@ -330,53 +343,42 @@ async function loadAndRenderGrid() {
   }
 
   adminGrid.innerHTML = projects.map(p => `
-    <div class="admin-card" data-id="${p.id}">
-      <img class="admin-card-img" src="${p.img}"
-           alt="${p.title}" loading="lazy"
-           title="Click to view full size" />
+    <div class="admin-card" data-id="${p.id}" data-location="${p.location || ''}" data-category="${p.category || 'Installation'}">
+      <img class="admin-card-img" src="${p.img}" alt="${p.title}" loading="lazy" />
       <div class="admin-card-body">
         <h4 title="${p.title}">${p.title}</h4>
         <div class="admin-card-meta">
-          <span class="cat-badge">${p.category}</span>
-          📍 ${p.location}
+          <span class="cat-badge">${p.category}</span> 📍 ${p.location}
         </div>
         <p class="admin-card-date">${p.date || ''}</p>
         <div class="admin-card-actions">
-          <button class="ac-btn ac-btn-replace" data-id="${p.id}" aria-label="Replace photo for ${p.title}">
-            🔄 Replace
-          </button>
-          <button class="ac-btn ac-btn-del" data-id="${p.id}" aria-label="Delete ${p.title}">
-            🗑 Delete
-          </button>
+          <button class="ac-btn ac-btn-replace" data-id="${p.id}">🔄 Replace</button>
+          <button class="ac-btn ac-btn-del"     data-id="${p.id}">🗑 Delete</button>
         </div>
       </div>
     </div>
   `).join('');
 
-  // Replace buttons
   adminGrid.querySelectorAll('.ac-btn-replace').forEach(btn => {
     btn.addEventListener('click', () => openModal(+btn.dataset.id));
   });
-
-  // Delete buttons
   adminGrid.querySelectorAll('.ac-btn-del').forEach(btn => {
     btn.addEventListener('click', () => deleteProject(+btn.dataset.id, btn));
   });
-
-  // Click image to view full size
   adminGrid.querySelectorAll('.admin-card-img').forEach(img => {
-    img.addEventListener('click', () => { window.open(img.src, '_blank'); });
+    img.style.cursor = 'zoom-in';
+    img.addEventListener('click', () => window.open(img.src, '_blank'));
   });
 }
 
 async function deleteProject(id, btn) {
-  if (!confirm('Delete this project? It will be removed from the website immediately.')) return;
+  if (!confirm('Delete this project from the website?')) return;
   btn.textContent = '...';
   btn.disabled = true;
   const res = await apiPost('/api/delete-project', { id });
   if (res.ok) {
     loadAndRenderGrid();
-    showToast('🗑 Project deleted from website.');
+    showToast('🗑 Project deleted.');
   } else {
     btn.textContent = '🗑 Delete';
     btn.disabled = false;
@@ -384,66 +386,54 @@ async function deleteProject(id, btn) {
   }
 }
 
-/* ══════════════════════════════════════
-   SETTINGS — Clear all
-══════════════════════════════════════ */
+/* ══ CLEAR ALL ══ */
 clearAllBtn.addEventListener('click', async () => {
-  if (!confirm('⚠️ Delete ALL project photos permanently?\n\nThis removes everything from the website. Cannot be undone.')) return;
+  if (!confirm('Delete ALL projects permanently?')) return;
   clearAllBtn.textContent = 'Deleting...';
   clearAllBtn.disabled = true;
   const res = await apiPost('/api/clear-projects', {});
   clearAllBtn.textContent = '🗑️ Delete All Projects';
   clearAllBtn.disabled = false;
-  if (res.ok) {
-    loadAndRenderGrid();
-    showToast('All projects deleted from website.');
-  } else {
-    showToast('❌ Failed: ' + (res.error || 'Unknown error'));
-  }
+  if (res.ok) { loadAndRenderGrid(); showToast('All projects deleted.'); }
+  else showToast('❌ Failed: ' + (res.error || 'Unknown'));
 });
 
-/* ══════════════════════════════════════
-   SETTINGS — Change password form
-══════════════════════════════════════ */
+/* ══ CHANGE PASSWORD ══ */
 changePassForm.addEventListener('submit', async e => {
   e.preventDefault();
   passMsg.className = 'pass-msg';
   passMsg.textContent = '';
+  const oldPass = document.getElementById('oldPass').value;
+  const newPass = document.getElementById('newPass').value;
+  const confirm = document.getElementById('confirmPass').value;
 
-  const oldPass  = document.getElementById('oldPass').value;
-  const newPass  = document.getElementById('newPass').value;
-  const confirm  = document.getElementById('confirmPass').value;
-
-  const savedToken = getToken();
+  const saved = getToken();
   setToken(oldPass);
-  const testRes = await apiPost('/api/save-project', { _test: true });
-  setToken(savedToken);
+  const test = await apiPost('/api/save-project', { _test: true });
+  setToken(saved);
 
-  if (testRes.error === 'Unauthorized') {
-    passMsg.textContent = '❌ Current password is wrong.';
-    passMsg.className = 'pass-msg error'; return;
-  }
-  if (newPass.length < 6) {
-    passMsg.textContent = '❌ New password must be at least 6 characters.';
-    passMsg.className = 'pass-msg error'; return;
-  }
-  if (newPass !== confirm) {
-    passMsg.textContent = '❌ Passwords do not match.';
-    passMsg.className = 'pass-msg error'; return;
-  }
+  if (test.error === 'Unauthorized') { passMsg.textContent = '❌ Current password is wrong.'; passMsg.className = 'pass-msg error'; return; }
+  if (newPass.length < 6) { passMsg.textContent = '❌ New password must be at least 6 characters.'; passMsg.className = 'pass-msg error'; return; }
+  if (newPass !== confirm) { passMsg.textContent = '❌ Passwords do not match.'; passMsg.className = 'pass-msg error'; return; }
 
-  passMsg.innerHTML = `✅ To apply your new password:<br>
-    1. Go to <a href="https://app.netlify.com" target="_blank"><strong>app.netlify.com</strong></a><br>
-    2. Site configuration → Environment variables<br>
-    3. Edit <strong>ADMIN_TOKEN</strong> → set to: <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px">${newPass}</code><br>
-    4. Deploys → Trigger deploy → Deploy site`;
+  passMsg.innerHTML = `✅ Go to <a href="https://app.netlify.com" target="_blank"><strong>Netlify</strong></a> → Site config → Environment variables → update <strong>ADMIN_TOKEN</strong> to: <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px">${newPass}</code> → Trigger deploy.`;
   passMsg.className = 'pass-msg success';
   changePassForm.reset();
 });
 
-/* ══════════════════════════════════════
-   TOAST
-══════════════════════════════════════ */
+/* ══ BANNER ══ */
+function showBanner(html) {
+  let b = document.getElementById('setupBanner');
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'setupBanner';
+    b.style.cssText = 'background:#fff3cd;border:1.5px solid #ffc107;border-radius:10px;padding:14px 20px;margin-bottom:24px;font-size:.9rem;line-height:1.6;';
+    document.querySelector('.main-content').prepend(b);
+  }
+  b.innerHTML = html;
+}
+
+/* ══ TOAST ══ */
 function showToast(msg) {
   let t = document.getElementById('adminToast');
   if (!t) {
@@ -452,11 +442,8 @@ function showToast(msg) {
     document.body.appendChild(t);
   }
   t.textContent = msg;
+  t.style.cssText = 'position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:#0f1a2b;color:#fff;padding:13px 28px;border-radius:50px;font-size:.9rem;font-weight:600;box-shadow:0 4px 24px rgba(0,0,0,.4);z-index:9999;white-space:nowrap;transition:opacity .3s;';
   t.style.opacity = '1';
-  t.style.transform = 'translateX(-50%) translateY(0)';
-  clearTimeout(t._timer);
-  t._timer = setTimeout(() => {
-    t.style.opacity = '0';
-    t.style.transform = 'translateX(-50%) translateY(20px)';
-  }, 3500);
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.style.opacity = '0', 3500);
 }
