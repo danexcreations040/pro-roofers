@@ -1,33 +1,31 @@
-// Netlify Function — GET /api/get-projects
-// Returns all uploaded projects stored in Netlify Blobs (free server storage)
-
+// GET /api/get-projects — fast, cached response
 import { getStore } from '@netlify/blobs';
 
 export default async (req, context) => {
   const headers = {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
-    'Cache-Control': 'no-store',
+    // Cache for 10 seconds — reduces cold starts on repeat loads
+    'Cache-Control': 'public, max-age=10, stale-while-revalidate=30',
   };
 
   try {
-    const store    = getStore('projects');
+    const store = getStore('projects');
     const { blobs } = await store.list();
 
-    const projects = [];
-    for (const blob of blobs) {
-      try {
-        const data = await store.get(blob.key, { type: 'json' });
-        if (data) projects.push(data);
-      } catch { /* skip corrupted entries */ }
-    }
+    // Fetch all in parallel — much faster than sequential
+    const results = await Promise.allSettled(
+      blobs.map(b => store.get(b.key, { type: 'json' }))
+    );
 
-    // Sort newest first (by id timestamp)
-    projects.sort((a, b) => b.id - a.id);
+    const projects = results
+      .filter(r => r.status === 'fulfilled' && r.value)
+      .map(r => r.value)
+      .sort((a, b) => b.id - a.id); // newest first
 
     return new Response(JSON.stringify({ ok: true, projects }), { status: 200, headers });
   } catch (err) {
-    return new Response(JSON.stringify({ ok: false, projects: [], error: err.message }), { status: 200, headers });
+    return new Response(JSON.stringify({ ok: false, projects: [] }), { status: 200, headers });
   }
 };
 
